@@ -6,6 +6,9 @@
 # # level 2
 # multidimensional
 
+# # level A
+# integrate with sklearn's model selection
+
 # # level 3
 # cost
 
@@ -24,7 +27,7 @@
 # WhiteKernel is trained to be kinda restrictive (however it's perhaps what we want?)
 # if you start sampling more points the whitekernel gets more and more irrelevant (Am I using it the right way?)
 
-
+from warnings import warn
 from functools import *
 from itertools import *
 from operator import *
@@ -124,6 +127,8 @@ class GaussianOptimizationCV(_search.BaseSearchCV):
 
         pre_dispatch = self.pre_dispatch
 
+
+        # FIXME recursively getting new parameters to evaluate
 
 #        parameter_iterable = ...  # the magic
 #
@@ -229,13 +234,16 @@ def a_EI(gp_model, data, theta=0.01):
 
 
     def a_EI_given(x):
-        (mu_x,), (sigma_x,) = gp_model.predict(x.reshape((-1, 1)), return_std=True)
+        """x : array-like, shape = [1, n_features] or [n_features]
+        """
+        (mu_x,), (sigma_x,) = gp_model.predict(x.reshape((1, -1)) , return_std=True)
         dx = (fx_min - mu_x) - theta
         Z = dx / sigma_x
 
         return dx * norm.cdf(Z) + sigma_x * norm.pdf(Z) if sigma_x > 0 else 0
 
     return a_EI_given
+
 
 def plot_confidence(x, y_pred, sigma, confidence=1):
     procent_confidence = erf(confidence/sqrt(2))
@@ -347,6 +355,10 @@ def bo(X, y):
 
 
     a = a_EI(gp, data)
+
+
+    # FIXME make this non-continous and use Grid
+
 
     # TODO have a reasonable optimization (this doesn't scale well)
     (x_min_,) = brute(
