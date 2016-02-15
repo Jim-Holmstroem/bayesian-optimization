@@ -47,6 +47,13 @@ from scipy.integrate import simps
 
 from matplotlib import pylab as plt
 
+
+from sklearn.model_selection import _search, _split, _validation  # TEMP temporary, still will be dealt with properly later when integrated into sklearn
+
+from sklearn.base import is_classifier, clone, BaseEstimator
+from sklearn.metrics.scorer import check_scoring
+from sklearn.utils.validation import _num_samples, indexable
+
 from sklearn.gaussian_process import (
     GaussianProcessRegressor,
     kernels,
@@ -56,6 +63,127 @@ from joblib import (
     Parallel,
     delayed,
 )
+
+
+# TODO which of this is needed? is it needed to have this anywhere at all? is it accessed by anything outside of the Gridsearch itself??
+# class ParameterGridlike(object):
+#   __iter__: current implementations are independent of prior evaluations, but GaussianOptimization is not
+#   __len__: easy for n_evaluations case but impossible for time-constraints
+#   __getitem__: (optional) only exists in ParameterGrid, NOTE ParameterSampler uses a ParameterGrid in the background and it's __getitem__
+
+# TODO time-constraints (also includes the other model_selectors?)
+
+# FIXME without CV as well
+# TODO maximum on param_grid (since param_grid isn't real but rasterized)
+class GaussianOptimizationCV(_search.BaseSearchCV):
+    def __init__(self, estimator, param_grid, n_iter, scoring=None, fit_params=None,
+                 n_jobs=1, iid=True, refit=True, cv=None, verbose=0,
+                 pre_dispatch='2*n_jobs', error_score='raise'):
+        assert(n_jobs == 1)
+        super(GaussianOptimizationCV, self).__init__(
+            estimator=estimator, scoring=scoring, fit_params=fit_params,
+            n_jobs=n_jobs, iid=iid, refit=refit, cv=cv, verbose=verbose,
+            pre_dispatch=pre_dispatch, error_score=error_score)
+        self.param_grid = param_grid
+        self.n_iter = n_iter
+        _search._check_param_grid(param_grid)
+
+
+    def _fit(self, X, y, labels, parameter_iterable):
+        raise NotImplementedError()  # too catch accidental use
+
+    def fit(self, X, y=None, labels=None):
+        #return self._fit(
+        #    X, y, labels,
+        #    parameter_iterable # parameter_iterable, \in Sized, it actually does len(parameter_iterable) in _fit
+        #)
+
+        # FIXME code duplication from BaseSearchCV._fit
+        estimator = self.estimator
+        cv = _split.check_cv(self.cv, y, classifiers=is_classifier(estimator))
+        self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
+
+        n_samples = _num_samples(X)
+        X, y, labels = indexable(X, y, labels)
+
+        if y is not None:
+            if len(y) != n_samples:
+                raise ValueError('Target variable (y) has a different number '
+                                  'of samples (%i) than data (X: %i samples)'
+                                  % (len(y), n_samples))
+
+        n_splits = cv.get_n_splits(X, y, labels)
+
+        if self.verbose > 0 and isinstance(parameter_iterable, Sized):
+            n_candidates = len(parameter_iterable)
+            print("Fitting {0} folds for each of {1} candidates, totalling"
+                  " {2} fits".format(n_splits, n_candidates,
+                                     n_candidates * n_splits))
+
+        base_estimator = clone(self.estimator)
+
+        pre_dispatch = self.pre_dispatch
+
+
+#        parameter_iterable = ...  # the magic
+#
+#        # The evaluation (Parallel) stuff
+#        out = Parallel(
+#            n_jobs=self.n_jobs, verbose=self.verbose,
+#            pre_dispatch=pre_dispatch
+#        )(delayed(_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
+#                                  train, test, self.verbose, parameters,
+#                                  self.fit_params, return_parameters=True,
+#                                  error_score=self.error_score)
+#            for parameters in parameter_iterable
+#            for train, test in cv.split(X, y, labels))
+#
+
+
+        n_fits = len(out)
+
+        scores = list()
+        grid_scores = list()
+        for grid_start in range(0, n_fits, n_splits):
+            n_test_samples = 0
+            score = 0
+            all_scores = []
+            for this_score, this_n_test_samples, _ , parameters in \
+                    out[grid_start:grid_start + n_splits]:
+                all_scores.append(this_score)
+                if self.iid:
+                    this_score *= this_n_test_samples
+                    n_test_samples += this_n_test_samples
+                score += this_score
+            if self.iid:
+                score /= float(n_test_samples)
+            else:
+                score /= float(n_splits)
+            scores.append((score, parameters))
+
+            grid_scores.append(_search._CVScoreTuple(
+                parameters,
+                score,
+                np.array(all_scores)))
+
+        self.grid_scores_ = grid_scores
+
+        best = sorted(grid_scores, key=lambda x: x.mean_validation_score,
+                      reverse=True)[0]
+
+        self.best_params_ = best.parameters
+        self.best_score_ = best.mean_validation_score
+
+        if self.refit:
+            best_estimator = clone(base_estimator).set_params(
+                **best.parameters)
+            if y is not None:
+                best_estimator.fit(X, y, **self.fit_params)
+            else:
+                best_estimator.fit(X, **self.fit_params)
+            self.best_estimator_ = best_estimator
+
+        return self
 
 
 def pmap(f, *xss):
