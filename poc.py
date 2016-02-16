@@ -53,6 +53,7 @@ from matplotlib import pylab as plt
 
 from sklearn.model_selection import _search, _split, _validation  # TEMP temporary, still will be dealt with properly later when integrated into sklearn
 
+from sklearn.preprocessing import normalize
 from sklearn.base import is_classifier, clone, BaseEstimator
 from sklearn.metrics.scorer import check_scoring
 from sklearn.utils.validation import _num_samples, indexable
@@ -202,8 +203,11 @@ def pmap_outer(f, *xss):
     )
 
 
-def f(x):
-    return x * np.sin(x)
+def f(x, crunch=True):
+    min_value = -5  # crunch it to fit withing [0, 1] for the range [0, 10]
+    max_value = 8
+
+    return (x * np.sin(x) - min_value) / (max_value - min_value) if crunch else x * np.sin(x)
 
 def f2d(x):
     """ The rosenbrock function
@@ -305,17 +309,12 @@ def plot_integrated_sigma(n_samples=range(4, 64, 1)):
     pl.show()
 
 
-
 def negate(f):
     def _f(*args, **kwargs):
         return -f(*args, **kwargs)
 
     return _f
 
-def silly_f(x):
-    (y_pred,), (sigma,) = gp.predict(x.reshape((-1, 1)), return_std=True)
-
-    return y_pred + sigma
 
 def bo(X, y):
 
@@ -323,9 +322,9 @@ def bo(X, y):
 
     x = np.atleast_2d(np.linspace(0, 10, 1024)).T
 
-    kernel = kernels.Matern() + kernels.WhiteKernel(noise_level=0.01, noise_level_bounds="fixed")
+    kernel = kernels.Matern() + kernels.WhiteKernel()
 
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16, )#normalize_y=True)
     # NOTE kernel hyperparams is optimized (on a default kernel RBF)
 
     gp.fit(X, y)
@@ -354,19 +353,21 @@ def bo(X, y):
     # TODO getting the gradient the gaussian would unlock all gradient based optimization methods!! (including L_BFGS)
 
 
-    a = a_EI(gp, data)
+    a = a_EI(gp, data, theta=0.01)
 
 
     # FIXME make this non-continous and use Grid
 
 
+    (x_min_,) = max(x, key=a)
+
     # TODO have a reasonable optimization (this doesn't scale well)
-    (x_min_,) = brute(
-        negate(a),
-        ranges=((0, 10),),
-        Ns=64,
-        finish=fmin,
-    )
+    #(x_min_,) = brute(
+    #    negate(a),
+    #    ranges=((0, 10),),
+    #    Ns=64,
+    #    finish=fmin,
+    #)
     # FIXME brute can return numbers outside of the range! X = np.linspace(0, 10, 32), Ns=64, ranges=((0, 10)  (x_min_ = 10.22...)
     # I think it occurs when the function is pretty flat (but not constant)
     # TODO verify that finish function gets the same range as brute and don't wonder off (perhaps this is intended behaviour?)
@@ -379,16 +380,19 @@ def bo(X, y):
 
     plt.axvline(x_min_)
 
+    a_x = np.array(list(map(a, x)), ndmin=2).T
+
+
     plt.plot(
         x,
-        list(map(a, x)),
+        a_x*(1/np.max(a_x)),
         'g--',
     )
 
 
     plt.plot(x, list(map(f, x)), 'm--')
     plt.plot(x, y_pred, 'r-')
-    plot_confidences(x, y_pred, sigma)
+    plot_confidences(x, y_pred, sigma, confidences=[1])
 
     plt.show()
 
