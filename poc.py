@@ -209,10 +209,11 @@ def f(x, crunch=True):
 
     return (x * np.sin(x) - min_value) / (max_value - min_value) if crunch else x * np.sin(x)
 
-def f2d(x):
-    """ The rosenbrock function
-    """
-    return .5*(1 - x[0])**2 + (x[1] - x[0]**2)**2
+def f2d(x, x_):
+    min_value = -60
+    max_value = 80
+    return ((x - 3 + x_/3) * (x_ + 1) * np.sin(x_) - min_value) / (max_value - min_value)
+    #return 0.5 * (1 - x)**2 + (x_ - x**2)**2
 
 
 def a_PI(data, gp_model):
@@ -309,6 +310,33 @@ def plot_integrated_sigma(n_samples=range(4, 64, 1)):
     pl.show()
 
 
+def plot_2d(x, x_, y_pred, sigma, a_x):
+    X, X_ = np.meshgrid(x, x_)
+    Y = f2d(X, X_)
+    plt.pcolormesh(X, X_, Y, cmap='viridis')
+    plt.colorbar()
+    plt.contour(X, X_, Y, [0.1,0.5,0.9])
+
+
+
+def plot(x, y_pred, x_min_, sigma, a_x):
+    plt.plot(x, y_pred, 'r-')
+    plt.plot(X, y, 'x')
+
+    plt.axvline(x_min_)
+
+    plt.plot(
+        x,
+        a_x*(1/np.max(a_x)),
+        'g--',
+    )
+
+
+    plt.plot(x, list(map(f, x)), 'm--')
+    plt.plot(x, y_pred, 'r-')
+    plot_confidences(x, y_pred, sigma, confidences=[1])
+
+
 def negate(f):
     def _f(*args, **kwargs):
         return -f(*args, **kwargs)
@@ -321,6 +349,8 @@ def bo(X, y):
     data = list(zip(X, y))
 
     x = np.atleast_2d(np.linspace(0, 10, 1024)).T
+    x_= np.atleast_2d(np.linspace(0, 10, 1024)).T
+
 
     kernel = kernels.Matern() + kernels.WhiteKernel()
 
@@ -354,10 +384,7 @@ def bo(X, y):
 
 
     a = a_EI(gp, data, theta=0.01)
-
-
-    # FIXME make this non-continous and use Grid
-
+    a_x = np.array(list(map(a, x)), ndmin=2).T
 
     (x_min_,) = max(x, key=a)
 
@@ -375,24 +402,9 @@ def bo(X, y):
 
     print(x_min_)
 
-    plt.plot(x, y_pred, 'r-')
-    plt.plot(X, y, 'x')
 
-    plt.axvline(x_min_)
-
-    a_x = np.array(list(map(a, x)), ndmin=2).T
-
-
-    plt.plot(
-        x,
-        a_x*(1/np.max(a_x)),
-        'g--',
-    )
-
-
-    plt.plot(x, list(map(f, x)), 'm--')
-    plt.plot(x, y_pred, 'r-')
-    plot_confidences(x, y_pred, sigma, confidences=[1])
+    plot_2d(x=x, x_=x_, y_pred=y_pred, sigma = sigma, a_x=a_x)
+    #plot(x=x, y_pred=y_pred, x_min_=x_min_, sigma=sigma, a_x=a_x)
 
     plt.show()
 
