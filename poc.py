@@ -27,6 +27,20 @@
 # WhiteKernel is trained to be kinda restrictive (however it's perhaps what we want?)
 # if you start sampling more points the whitekernel gets more and more irrelevant (Am I using it the right way?)
 
+
+# # Simple Comparison Test
+# SearchCV(ElasticNet(), [{'l1_ratio': np.linspace(0, 1, 64)}]
+
+
+# # Plan
+# - 2d
+# - a_PI
+# - (a_LCB if easy)
+# - rewrite
+# - setup benchmarks
+# - ???
+
+
 from warnings import warn
 from functools import *
 from itertools import *
@@ -67,7 +81,6 @@ from joblib import (
     Parallel,
     delayed,
 )
-
 
 # TODO which of this is needed? is it needed to have this anywhere at all? is it accessed by anything outside of the Gridsearch itself??
 # class ParameterGridlike(object):
@@ -209,10 +222,11 @@ def f(x, crunch=True):
 
     return (x * np.sin(x) - min_value) / (max_value - min_value) if crunch else x * np.sin(x)
 
-def f2d(x, x_):
+def f2d(x):
+    xa, xb = x[:,0], x[:,1]
     min_value = -60
     max_value = 80
-    return ((x - 3 + x_/3) * (x_ + 1) * np.sin(x_) - min_value) / (max_value - min_value)
+    return ((xa - 3 + xb/3) * (xb + 1) * np.sin(xb) - min_value) / (max_value - min_value)
     #return 0.5 * (1 - x)**2 + (x_ - x**2)**2
 
 
@@ -225,27 +239,31 @@ def a_PI(data, gp_model):
     return a_PI_given
 
 
-# TODO this only supports 1D
-def a_EI(gp_model, data, theta=0.01):
+def a_EI(gp_model, x_obs, y_obs, theta=0.01):
     # NOTE a_EI is trying to find a minimum value of f
     # theta = 0.01
     # http://arxiv.org/pdf/1012.2599v1.pdf
     # TODO theta (scaled by signal variance if necessary)
 
     assert(theta >= 0.0)
-    assert(len(data) > 0)
 
-    x_min, fx_min = min(data, key=itemgetter(1))
+    # TODO handle no observations case  (fx_min = 1?)
+    fx_min = y_obs.min()
 
 
     def a_EI_given(x):
-        """x : array-like, shape = [1, n_features] or [n_features]
+        """x : array-like, shape = [n_observations, n_features]
         """
-        (mu_x,), (sigma_x,) = gp_model.predict(x.reshape((1, -1)) , return_std=True)
+        mu_x, sigma_x = gp_model.predict(x, return_std=True)
+        mu_x = mu_x[:, 0]  # This uses the fact that mu_x will always have shape=(n_samples, 1)
         dx = (fx_min - mu_x) - theta
         Z = dx / sigma_x
 
-        return dx * norm.cdf(Z) + sigma_x * norm.pdf(Z) if sigma_x > 0 else 0
+        return np.maximum(
+            dx * norm.cdf(Z) + sigma_x * norm.pdf(Z),
+            0
+        )
+        # FIXME why do we cut out all negative a?
 
     return a_EI_given
 
@@ -312,16 +330,21 @@ def plot_integrated_sigma(n_samples=range(4, 64, 1)):
 
 def plot_2d(x, x_, y_pred, sigma, a_x):
     X, X_ = np.meshgrid(x, x_)
-    Y = f2d(X, X_)
-    plt.pcolormesh(X, X_, Y, cmap='viridis')
-    plt.colorbar()
-    plt.contour(X, X_, Y, [0.1,0.5,0.9])
+    Y_true = f2d(X, X_)
+
+    f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
+
+    ax1.pcolormesh(X, X_, Y_true, cmap='viridis')
+    ax1.contour(X, X_, Y_true, [0.1,0.5,0.9])
+
+    ax2.pcolormesh(X, X_, a_x, cmap='viridis')
+    ax2.contour(X, X_, a_x, [0.1,0.5,0.9])
 
 
 
-def plot(x, y_pred, x_min_, sigma, a_x):
+def plot(x, y_pred, x_obs, y_obs, x_min_, sigma, a_x):
     plt.plot(x, y_pred, 'r-')
-    plt.plot(X, y, 'x')
+    plt.plot(x_obs, y_obs, 'o')
 
     plt.axvline(x_min_)
 
@@ -334,7 +357,7 @@ def plot(x, y_pred, x_min_, sigma, a_x):
 
     plt.plot(x, list(map(f, x)), 'm--')
     plt.plot(x, y_pred, 'r-')
-    plot_confidences(x, y_pred, sigma, confidences=[1])
+    #plot_confidences(x, y_pred, sigma, confidences=[1])
 
 
 def negate(f):
@@ -355,7 +378,6 @@ def bo(X, y):
     kernel = kernels.Matern() + kernels.WhiteKernel()
 
     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16, )#normalize_y=True)
-    # NOTE kernel hyperparams is optimized (on a default kernel RBF)
 
     gp.fit(X, y)
     # FIXME is it possible for mu(x) < min{x \in observed_x}?
@@ -383,8 +405,8 @@ def bo(X, y):
     # TODO getting the gradient the gaussian would unlock all gradient based optimization methods!! (including L_BFGS)
 
 
-    a = a_EI(gp, data, theta=0.01)
-    a_x = np.array(list(map(a, x)), ndmin=2).T
+    a = a_EI(gp, x_obs=X, y_obs=y, theta=0.01)
+    a_x = np.apply_along_axis(a, 1, x)
 
     (x_min_,) = max(x, key=a)
 
@@ -403,8 +425,8 @@ def bo(X, y):
     print(x_min_)
 
 
-    plot_2d(x=x, x_=x_, y_pred=y_pred, sigma = sigma, a_x=a_x)
-    #plot(x=x, y_pred=y_pred, x_min_=x_min_, sigma=sigma, a_x=a_x)
+    #plot_2d(x=x, x_=x_, y_pred=y_pred, sigma = sigma, a_x=a_x)
+    plot(x=x, y_pred=y_pred, x_obs=X, y_obs=y, x_min_=x_min_, sigma=sigma, a_x=a_x)
 
     plt.show()
 
@@ -420,10 +442,59 @@ def bo(X, y):
     )
 
 
-if __name__ == "__main__":
-    X = np.atleast_2d(
-        [1,2,3.5]  # FIXME really sensative to input
-    ).T
-    y = f(X).ravel()
+#if __name__ == "__main__":
+#    X = np.atleast_2d(
+#        [ 1, 2, 3.5]  # FIXME really sensative to input
+#    ).T
+#    y = f(X)#.ravel()
+#    print(X.shape, y.shape,)
+#
+#    bo(X, y)
 
-    bo(X, y)
+
+
+
+def bo_(x_obs, y_obs):
+    kernel = kernels.Matern() + kernels.WhiteKernel()
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
+    gp.fit(x_obs, y_obs)
+
+    xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 1024)).T, 2))
+    x = xs[0]
+
+
+    y_mean, y_sigma = gp.predict(x, return_std=True)
+
+    a = a_EI(gp, x_obs=x_obs, y_obs=y_obs, theta=0.01)
+
+    print(np.argmin(a(x)))
+    argmin_a_x = x[np.argmax(a(x))]
+
+    # heavy evaluation
+    print("f({})".format(argmin_a_x))
+    f_argmin_a_x = f(argmin_a_x)
+
+
+    plot(x, y_mean, x_obs, y_obs, argmin_a_x, y_sigma, a(x))
+    plt.show()
+
+
+    bo_(
+        x_obs=np.vstack((x_obs, argmin_a_x)),
+        y_obs=np.vstack((y_obs, f_argmin_a_x)),
+    )
+
+
+
+if __name__== "__main__":
+    x_obs = np.array(
+        [
+            [ 1, 1],
+            [ 2, 7],
+            [ 3.5, 1],
+        ]
+    )
+    x_obs = x_obs[:,0:1]
+    y_obs = f(x_obs)
+
+    bo_(x_obs, y_obs)
