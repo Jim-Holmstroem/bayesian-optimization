@@ -212,6 +212,10 @@ def negate(f):
     return _f
 
 
+def cartesian_product(xs):
+    return np.dstack(np.meshgrid(*xs)).reshape(-1, len(xs))
+
+
 def pmap(f, *xss):
     return Parallel(n_jobs=-1)(
         starmap(delayed(f), *xss)
@@ -229,8 +233,7 @@ def f(x, crunch=True):
 
     return (x * np.sin(x) - min_value) / (max_value - min_value) if crunch else x * np.sin(x)
 
-def f2d(x):
-    xa, xb = x[:,0], x[:,1]
+def f2d(xa, xb):
     min_value = -60
     max_value = 80
     return ((xa - 3 + xb/3) * (xb + 1) * np.sin(xb) - min_value) / (max_value - min_value)
@@ -320,22 +323,6 @@ def integrated_sigma(n_samples, alpha=1.0, n_restarts_optimizer=16, f=f):
     )
 
 
-def plot_integrated_sigma(n_samples=range(4, 64, 1)):
-    for alpha in np.linspace(0, 2, 16):
-        pl.plot(
-            n_samples,
-            pmap_outer(
-                integrated_sigma,
-                n_samples,
-                [alpha, ],
-            ),
-            label="$\\alpha$={alpha:.2f}".format(alpha=alpha),
-            alpha=0.8,
-        )
-    pl.legend(framealpha=0.8)
-    pl.show()
-
-
 def plot(model, x_obs, y_obs, argmin_a_x, a, x):
     y_mean, y_sigma = model.predict(x, return_std=True)
     y_sigma = np.atleast_2d(y_sigma).T
@@ -355,9 +342,12 @@ def plot(model, x_obs, y_obs, argmin_a_x, a, x):
     plot_confidences(x, y_mean, y_sigma, confidences=[1])
 
 
-def plot_2d(gp_model, x_obs, y_obs, argmin_a_x, a, x, x_):
-    X, X_ = np.meshgrid(x, x_)
+def plot_2d(gp_model, x_obs, y_obs, argmin_a_x, a, xs):
+    x, x_ = xs
+    X, X_ = np.meshgrid(*xs)
     Y_true = f2d(X, X_)
+
+    a_x = a(cartesian_product(xs)).reshape((xs[-1].shape[0],-1))
 
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
 
@@ -365,7 +355,15 @@ def plot_2d(gp_model, x_obs, y_obs, argmin_a_x, a, x, x_):
     ax1.contour(X, X_, Y_true, [0.1,0.5,0.9])
 
     ax2.pcolormesh(X, X_, a_x, cmap='viridis')
-    ax2.contour(X, X_, a_x, [0.1,0.5,0.9])
+    ax3.pcolormesh(X, X_, Y_true, cmap='viridis')
+    ax4.pcolormesh(X, X_, Y_true, cmap='viridis')
+
+    def plot_old_and_new_observations_on(ax):
+        ax.plot(x_obs[:,0],x_obs[:,1], 'o')
+        ax.axvline(argmin_a_x[0])
+        ax.axhline(argmin_a_x[1])
+
+    list(map(plot_old_and_new_observations_on, [ax1, ax2, ax3, ax4]))
 
 
 
@@ -458,8 +456,8 @@ def bo_(x_obs, y_obs):
     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
     gp.fit(x_obs, y_obs)
 
-    xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 1024)).T, 2))
-    x = xs[0]
+    xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 128)).T, 2))
+    x = cartesian_product(xs)
 
     a = a_EI(gp, x_obs=x_obs, y_obs=y_obs, theta=0.01)
 
@@ -470,8 +468,7 @@ def bo_(x_obs, y_obs):
     f_argmin_a_x = f(argmin_a_x)
 
 
-#    plot(x, y_mean, x_obs, y_obs, argmin_a_x, y_sigma, a(x))
-    plot(gp, x_obs, y_obs, argmin_a_x, a, x)
+    plot_2d(gp, x_obs, y_obs, argmin_a_x, a, xs)
     plt.show()
 
 
@@ -489,7 +486,7 @@ if __name__== "__main__":
             [ 3.5, 1],
         ]
     )
-    x_obs = x_obs[:,0:1]
+    #x_obs = x_obs[:,0:1]
     y_obs = f(x_obs)
 
     bo_(x_obs, y_obs)
