@@ -205,6 +205,13 @@ class GaussianOptimizationCV(_search.BaseSearchCV):
         return self
 
 
+def negate(f):
+    def _f(*args, **kwargs):
+        return -f(*args, **kwargs)
+
+    return _f
+
+
 def pmap(f, *xss):
     return Parallel(n_jobs=-1)(
         starmap(delayed(f), *xss)
@@ -268,11 +275,12 @@ def a_EI(gp_model, x_obs, y_obs, theta=0.01):
     return a_EI_given
 
 
-def plot_confidence(x, y_pred, sigma, confidence=1):
+def plot_confidence(x, y_mean, y_sigma, confidence=1):
     procent_confidence = erf(confidence/sqrt(2))
+
     return plt.fill(
         np.concatenate([x, x[::-1]]),
-        np.concatenate([y_pred + confidence*sigma, (y_pred - confidence*sigma)[::-1]]),
+        np.concatenate([y_mean + confidence * y_sigma, (y_mean - confidence * y_sigma)[::-1]]),
         alpha=.1,
         fc='b',
         ec='None',
@@ -328,7 +336,26 @@ def plot_integrated_sigma(n_samples=range(4, 64, 1)):
     pl.show()
 
 
-def plot_2d(x, x_, y_pred, sigma, a_x):
+def plot(model, x_obs, y_obs, argmin_a_x, a, x):
+    y_mean, y_sigma = model.predict(x, return_std=True)
+    y_sigma = np.atleast_2d(y_sigma).T
+    a_x = a(x)
+    plt.plot(x, y_mean, 'r-')
+    plt.plot(x_obs, y_obs, 'o')
+
+    plt.axvline(argmin_a_x)
+
+    plt.plot(
+        x,
+        a_x*(1/np.max(a_x)),
+        'g--',
+    )
+
+    plt.plot(x, f(x), 'm--')
+    plot_confidences(x, y_mean, y_sigma, confidences=[1])
+
+
+def plot_2d(gp_model, x_obs, y_obs, argmin_a_x, a, x, x_):
     X, X_ = np.meshgrid(x, x_)
     Y_true = f2d(X, X_)
 
@@ -340,31 +367,6 @@ def plot_2d(x, x_, y_pred, sigma, a_x):
     ax2.pcolormesh(X, X_, a_x, cmap='viridis')
     ax2.contour(X, X_, a_x, [0.1,0.5,0.9])
 
-
-
-def plot(x, y_pred, x_obs, y_obs, x_min_, sigma, a_x):
-    plt.plot(x, y_pred, 'r-')
-    plt.plot(x_obs, y_obs, 'o')
-
-    plt.axvline(x_min_)
-
-    plt.plot(
-        x,
-        a_x*(1/np.max(a_x)),
-        'g--',
-    )
-
-
-    plt.plot(x, list(map(f, x)), 'm--')
-    plt.plot(x, y_pred, 'r-')
-    #plot_confidences(x, y_pred, sigma, confidences=[1])
-
-
-def negate(f):
-    def _f(*args, **kwargs):
-        return -f(*args, **kwargs)
-
-    return _f
 
 
 def bo(X, y):
@@ -426,9 +428,8 @@ def bo(X, y):
 
 
     #plot_2d(x=x, x_=x_, y_pred=y_pred, sigma = sigma, a_x=a_x)
-    plot(x=x, y_pred=y_pred, x_obs=X, y_obs=y, x_min_=x_min_, sigma=sigma, a_x=a_x)
-
-    plt.show()
+    #plot(x=x, y_pred=y_pred, x_obs=X, y_obs=y, x_min_=x_min_, sigma=sigma, a_x=a_x)
+    #plt.show()
 
     # evaluate
     fx_min_ = f(x_min_)
@@ -452,8 +453,6 @@ def bo(X, y):
 #    bo(X, y)
 
 
-
-
 def bo_(x_obs, y_obs):
     kernel = kernels.Matern() + kernels.WhiteKernel()
     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
@@ -462,12 +461,8 @@ def bo_(x_obs, y_obs):
     xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 1024)).T, 2))
     x = xs[0]
 
-
-    y_mean, y_sigma = gp.predict(x, return_std=True)
-
     a = a_EI(gp, x_obs=x_obs, y_obs=y_obs, theta=0.01)
 
-    print(np.argmin(a(x)))
     argmin_a_x = x[np.argmax(a(x))]
 
     # heavy evaluation
@@ -475,7 +470,8 @@ def bo_(x_obs, y_obs):
     f_argmin_a_x = f(argmin_a_x)
 
 
-    plot(x, y_mean, x_obs, y_obs, argmin_a_x, y_sigma, a(x))
+#    plot(x, y_mean, x_obs, y_obs, argmin_a_x, y_sigma, a(x))
+    plot(gp, x_obs, y_obs, argmin_a_x, a, x)
     plt.show()
 
 
@@ -483,7 +479,6 @@ def bo_(x_obs, y_obs):
         x_obs=np.vstack((x_obs, argmin_a_x)),
         y_obs=np.vstack((y_obs, f_argmin_a_x)),
     )
-
 
 
 if __name__== "__main__":
