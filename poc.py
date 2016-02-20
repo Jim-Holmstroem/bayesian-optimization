@@ -33,9 +33,6 @@
 
 
 # # Plan
-# - 2d
-# - a_PI
-# - (a_LCB if easy)
 # - rewrite
 # - setup benchmarks
 # - ???
@@ -70,7 +67,9 @@ from sklearn.model_selection import _search, _split, _validation  # TEMP tempora
 from sklearn.preprocessing import normalize
 from sklearn.base import is_classifier, clone, BaseEstimator
 from sklearn.metrics.scorer import check_scoring
+from sklearn.cross_validation import _fit_and_score
 from sklearn.utils.validation import _num_samples, indexable
+
 
 from sklearn.gaussian_process import (
     GaussianProcessRegressor,
@@ -212,7 +211,7 @@ def negate(f):
     return _f
 
 
-def cartesian_product(xs):
+def cartesian_product(*xs):
     return np.dstack(np.meshgrid(*xs)).reshape(-1, len(xs))
 
 
@@ -233,18 +232,25 @@ def f(x, crunch=True):
 
     return (x * np.sin(x) - min_value) / (max_value - min_value) if crunch else x * np.sin(x)
 
-def f2d(xa, xb):
+
+def f2d(x):
+    xa, xb = x[:,0], x[:,1]
     min_value = -60
     max_value = 80
     return ((xa - 3 + xb/3) * (xb + 1) * np.sin(xb) - min_value) / (max_value - min_value)
     #return 0.5 * (1 - x)**2 + (x_ - x**2)**2
 
 
-def a_PI(data, gp_model):
-    raise NotImplementedError()
+def a_PI(gp_model, x_obs, y_obs, theta=0.01):
+    assert(theta >= 0.0)
+    fx_min = y_obs.min()
 
     def a_PI_given(x):
-        pass
+        mu_x, sigma_x = gp_model.predict(x, return_std=True)
+        dx = (fx_min - mu_x) - theta
+        Z = dx / sigma_x
+
+        return norm.cdf(Z)
 
     return a_PI_given
 
@@ -265,7 +271,6 @@ def a_EI(gp_model, x_obs, y_obs, theta=0.01):
         """x : array-like, shape = [n_observations, n_features]
         """
         mu_x, sigma_x = gp_model.predict(x, return_std=True)
-        mu_x = mu_x[:, 0]  # This uses the fact that mu_x will always have shape=(n_samples, 1)
         dx = (fx_min - mu_x) - theta
         Z = dx / sigma_x
 
@@ -276,6 +281,19 @@ def a_EI(gp_model, x_obs, y_obs, theta=0.01):
         # FIXME why do we cut out all negative a?
 
     return a_EI_given
+
+
+# FIXME performs really badly
+def a_LCB(gp_model, x_obs, y_obs, kappa=1.0):
+    """
+    kappa could partially be estimated, see [Srinivas et al., 2010]
+    """
+    def a_LCB_given(x):
+        mu_x, sigma_x = gp_model.predict(x, return_std=True)
+
+        return -(mu_x - kappa * sigma_x)  # FIXME fix this properly, the minus is a "hack" (or show that it's not a hack)
+
+    return a_LCB_given
 
 
 def plot_confidence(x, y_mean, y_sigma, confidence=1):
@@ -295,32 +313,6 @@ def plot_confidences(x, y_pred, sigma, confidences=range(1, 3)):
         partial(plot_confidence, x, y_pred, sigma),
         confidences
     ))
-
-
-def integrated_sigma(n_samples, alpha=1.0, n_restarts_optimizer=16, f=f):
-    print("integrated_sigma(n_samples={n_samples}, alpha={alpha})".format(
-        n_samples=n_samples,
-        alpha=alpha,
-    ))
-    X = np.atleast_2d(
-        np.linspace(1, 9, n_samples)
-    ).T
-    y = f(X).ravel()
-    x = np.atleast_2d(np.linspace(0, 10, 16 * 1024)).T
-
-    kernel = kernels.Matern() + kernels.WhiteKernel(noise_level=alphak, noise_level_bounds='fixed')
-    gp = GaussianProcessRegressor(
-        kernel=kernel,
-        n_restarts_optimizer=n_restarts_optimizer,
-    )
-    gp.fit(X, y)
-
-    y_pred, sigma = gp.predict(x, return_std=True)
-
-    return simps(
-        x=x.ravel(),
-        y=sigma,
-    )
 
 
 def plot(model, x_obs, y_obs, argmin_a_x, a, x):
@@ -345,25 +337,39 @@ def plot(model, x_obs, y_obs, argmin_a_x, a, x):
 def plot_2d(gp_model, x_obs, y_obs, argmin_a_x, a, xs):
     x, x_ = xs
     X, X_ = np.meshgrid(*xs)
-    Y_true = f2d(X, X_)
+    Y_true = f2d(cartesian_product(*xs)).reshape((xs[-1].shape[0],-1))
 
-    a_x = a(cartesian_product(xs)).reshape((xs[-1].shape[0],-1))
+    a_x = a(cartesian_product(*xs)).reshape((xs[-1].shape[0],-1))
+
+    mu_x, sigma_x = gp_model.predict(cartesian_product(*xs), return_std=True)
+    mu_x = mu_x.reshape((xs[-1].shape[0],-1))
+    sigma_x = sigma_x.reshape((xs[-1].shape[0],-1))
 
     f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
 
+    ax1.set_title("$f$")
     ax1.pcolormesh(X, X_, Y_true, cmap='viridis')
-    ax1.contour(X, X_, Y_true, [0.1,0.5,0.9])
+    #ax1.contour(X, X_, Y_true, [0.1,0.5,0.9])
 
+    ax2.set_title("$a$")
     ax2.pcolormesh(X, X_, a_x, cmap='viridis')
-    ax3.pcolormesh(X, X_, Y_true, cmap='viridis')
-    ax4.pcolormesh(X, X_, Y_true, cmap='viridis')
 
-    def plot_old_and_new_observations_on(ax):
-        ax.plot(x_obs[:,0],x_obs[:,1], 'o')
+    ax3.set_title("$\\mu$")
+    ax3.pcolormesh(X, X_, mu_x, cmap='viridis')
+
+    ax4.set_title("$\\sigma$")
+    ax4.pcolormesh(X, X_, sigma_x, cmap='viridis')
+
+    def plot_observations_and_query_on(ax):
+        ax.plot(
+            x_obs[:,0],
+            x_obs[:,1],
+            'ro'
+        )
         ax.axvline(argmin_a_x[0])
         ax.axhline(argmin_a_x[1])
 
-    list(map(plot_old_and_new_observations_on, [ax1, ax2, ax3, ax4]))
+    list(map(plot_observations_and_query_on, [ax1, ax2, ax3, ax4]))
 
 
 
@@ -457,15 +463,15 @@ def bo_(x_obs, y_obs):
     gp.fit(x_obs, y_obs)
 
     xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 128)).T, 2))
-    x = cartesian_product(xs)
+    x = cartesian_product(*xs)
 
-    a = a_EI(gp, x_obs=x_obs, y_obs=y_obs, theta=0.01)
+    a = a_EI(gp, x_obs=x_obs, y_obs=y_obs)
 
     argmin_a_x = x[np.argmax(a(x))]
 
     # heavy evaluation
     print("f({})".format(argmin_a_x))
-    f_argmin_a_x = f(argmin_a_x)
+    f_argmin_a_x = f2d(np.atleast_2d(argmin_a_x))
 
 
     plot_2d(gp, x_obs, y_obs, argmin_a_x, a, xs)
@@ -474,7 +480,7 @@ def bo_(x_obs, y_obs):
 
     bo_(
         x_obs=np.vstack((x_obs, argmin_a_x)),
-        y_obs=np.vstack((y_obs, f_argmin_a_x)),
+        y_obs=np.hstack((y_obs, f_argmin_a_x)),
     )
 
 
@@ -486,7 +492,6 @@ if __name__== "__main__":
             [ 3.5, 1],
         ]
     )
-    #x_obs = x_obs[:,0:1]
-    y_obs = f(x_obs)
+    y_obs = f2d(x_obs)  # FIXME shouldl y_obs have same dimensions as x_obs?
 
     bo_(x_obs, y_obs)
