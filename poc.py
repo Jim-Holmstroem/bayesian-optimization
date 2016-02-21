@@ -81,6 +81,8 @@ from joblib import (
     delayed,
 )
 
+# TODO Should the ranges for the grid be represented by something smarter then lists?
+
 # TODO which of this is needed? is it needed to have this anywhere at all? is it accessed by anything outside of the Gridsearch itself??
 # class ParameterGridlike(object):
 #   __iter__: current implementations are independent of prior evaluations, but GaussianOptimization is not
@@ -88,15 +90,18 @@ from joblib import (
 #   __getitem__: (optional) only exists in ParameterGrid, NOTE ParameterSampler uses a ParameterGrid in the background and it's __getitem__
 
 # TODO time-constraints (also includes the other model_selectors?)
+# TODO how to handle log-scales
+
+# TODO could the std in grid_scores_ be used for "input noice" like WhiteKernel  (it's not really the same thing right?)
 
 # FIXME without CV as well
 # TODO maximum on param_grid (since param_grid isn't real but rasterized)
-class GaussianOptimizationCV(_search.BaseSearchCV):
+class BayesianOptimizationSearchCV(_search.BaseSearchCV):
     def __init__(self, estimator, param_grid, n_iter, scoring=None, fit_params=None,
                  n_jobs=1, iid=True, refit=True, cv=None, verbose=0,
                  pre_dispatch='2*n_jobs', error_score='raise'):
         assert(n_jobs == 1)
-        super(GaussianOptimizationCV, self).__init__(
+        super(BayesianOptimizationSearchCV, self).__init__(
             estimator=estimator, scoring=scoring, fit_params=fit_params,
             n_jobs=n_jobs, iid=iid, refit=refit, cv=cv, verbose=verbose,
             pre_dispatch=pre_dispatch, error_score=error_score)
@@ -116,7 +121,7 @@ class GaussianOptimizationCV(_search.BaseSearchCV):
 
         # FIXME code duplication from BaseSearchCV._fit
         estimator = self.estimator
-        cv = _split.check_cv(self.cv, y, classifiers=is_classifier(estimator))
+        cv = _split.check_cv(self.cv, y, classifier=is_classifier(estimator))
         self.scorer_ = check_scoring(self.estimator, scoring=self.scoring)
 
         n_samples = _num_samples(X)
@@ -139,6 +144,7 @@ class GaussianOptimizationCV(_search.BaseSearchCV):
         base_estimator = clone(self.estimator)
 
         pre_dispatch = self.pre_dispatch
+        # FIXME how to handle pre_dispatch
 
 
         # FIXME recursively getting new parameters to evaluate
