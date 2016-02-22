@@ -83,4 +83,5 @@ bayesian_optimization_search = BayesianOptimizationSearchCV(
 bayesian_optimization_search.fit(X, y)
 
 plt.plot(list(cum(max, mean_validation_scores(random_search))))
+plt.plot(list(cum(max, mean_validation_scores(bayesian_optimization_search))))
 plt.show()

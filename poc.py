@@ -1,9 +1,13 @@
+from __future__ import (
+    division,
+    print_function,
+)
 
-# # level 1
+# # level 1 [check]
 # GP | kernel and acqusition function
 # visualizations
 
-# # level 2
+# # level 2 [check]
 # multidimensional
 
 # # level A
@@ -30,12 +34,6 @@
 
 # # Simple Comparison Test
 # SearchCV(ElasticNet(), [{'l1_ratio': np.linspace(0, 1, 64)}]
-
-
-# # Plan
-# - rewrite
-# - setup benchmarks
-# - ???
 
 
 from warnings import warn
@@ -162,6 +160,52 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
 #            for parameters in parameter_iterable
 #            for train, test in cv.split(X, y, labels))
 #
+
+        # n_fits on each (train, test)
+        def cross_validation(parameters):
+            return Parallel(
+                n_jobs=self.n_jobs, verbose=self.verbose,
+                pre_dispatch=pre_dispatch
+            )(delayed(_fit_and_score)(clone(base_estimator), X, y, self.scorer_,
+                                      train, test, self.verbose, parameters,
+                                      self.fit_params, return_parameters=True,
+                                      error_score=self.error_score)
+               for train, test in cv.split(X, y, labels))
+
+
+        # FIXME implement as non-recursive
+        # FIXME cannot fit with empty data
+        def bo_(x_obs, y_obs, n_iter):
+            if n_iter > 0:
+                kernel = kernels.Matern() + kernels.WhiteKernel()
+                gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
+                gp.fit(x_obs, y_obs)
+
+                xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 128)).T, 2))
+                x = cartesian_product(*xs)
+
+                a = a_EI(gp, x_obs=x_obs, y_obs=y_obs)
+
+                argmin_a_x = x[np.argmax(a(x))]
+
+                # heavy evaluation
+                print("f({})".format(argmin_a_x))
+                f_argmin_a_x = cross_validation(np.atleast_2d(argmin_a_x))
+
+                y_obs = np.mean(mean_validation_score(f_argmin_a_x))
+                print("y_obs", y_obs)
+
+                return f_argmin_a_x + bo_(
+                    x_obs=np.vstack((x_obs, argmin_a_x)),
+                    y_obs=np.hstack((y_obs, f_argmin_a_x)),
+                    n_iter=n_iter-1,
+                )
+
+            else:
+                return []
+
+
+        out = bo_([], [], n_iter=self.n_iter)
 
 
         n_fits = len(out)
