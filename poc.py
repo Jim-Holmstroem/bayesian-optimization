@@ -192,12 +192,12 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
                 print("f({})".format(argmin_a_x))
                 f_argmin_a_x = cross_validation(np.atleast_2d(argmin_a_x))
 
-                y_obs = np.mean(mean_validation_score(f_argmin_a_x))
+                y_ob = np.mean(mean_validation_score(f_argmin_a_x))
                 print("y_obs", y_obs)
 
                 return f_argmin_a_x + bo_(
                     x_obs=np.vstack((x_obs, argmin_a_x)),
-                    y_obs=np.hstack((y_obs, f_argmin_a_x)),
+                    y_obs=np.hstack((y_obs, y_ob)),
                     n_iter=n_iter-1,
                 )
 
