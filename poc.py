@@ -36,6 +36,13 @@ from __future__ import (
 # SearchCV(ElasticNet(), [{'l1_ratio': np.linspace(0, 1, 64)}]
 
 
+# # Idea
+# Mix informativity (or whatever it's called, the thing in probabilistic numerics on where you should choose the first set off points when for examples integrating (which is evenly spread out))
+# with trying to find a minimum
+# enforcing some informativity will basically make it lean about towards exploration (is this true?)
+#
+
+
 from warnings import warn
 from functools import *
 from itertools import *
@@ -205,6 +212,7 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
                 return []
 
 
+        # FIXME (most informative) decision like Numerical Probabilistics stuff for integrations
         out = bo_([], [], n_iter=self.n_iter)
 
 
