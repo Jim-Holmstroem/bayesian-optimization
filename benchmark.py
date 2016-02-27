@@ -43,7 +43,7 @@ def mean_validation_scores(grid_estimator):
 digits = load_digits()
 X, y = digits.data, digits.target
 
-n_iter = 16
+n_iter = 4
 clf = RandomForestClassifier(
     bootstrap=True,
     criterion="gini",
@@ -64,9 +64,9 @@ random_search = RandomizedSearchCV(
     n_jobs=-1,
 )
 
-random_search.fit(X, y)
+#random_search.fit(X, y)
 
-param_domain = {
+param_grid = {
     "max_features": list(range(1, 32)),
     "min_samples_split": list(range(1, 32)),
     "min_samples_leaf": list(range(1, 32)),
@@ -74,10 +74,14 @@ param_domain = {
     "max_depth": list(range(2, 32)),
 }
 
+n_initial_points = 1
+
 bayesian_optimization_search = BayesianOptimizationSearchCV(
     clf,
-    param_grid=param_domain,
-    n_iter=n_iter
+    param_grid=param_grid,
+    n_iter=n_iter-n_initial_points,
+    n_initial_points=n_initial_points,
+    n_jobs=1
 )
 
 bayesian_optimization_search.fit(X, y)

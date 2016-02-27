@@ -86,6 +86,13 @@ from joblib import (
     delayed,
 )
 
+
+def co(f, *gs):
+    if gs:
+        return lambda *x: f(co(*gs)(*x))
+    else:
+        return f
+
 # TODO Should the ranges for the grid be represented by something smarter then lists?
 
 # TODO which of this is needed? is it needed to have this anywhere at all? is it accessed by anything outside of the Gridsearch itself??
@@ -102,7 +109,7 @@ from joblib import (
 # FIXME without CV as well
 # TODO maximum on param_grid (since param_grid isn't real but rasterized)
 class BayesianOptimizationSearchCV(_search.BaseSearchCV):
-    def __init__(self, estimator, param_grid, n_iter, scoring=None, fit_params=None,
+    def __init__(self, estimator, param_grid, n_iter, n_initial_points, scoring=None, fit_params=None,
                  n_jobs=1, iid=True, refit=True, cv=None, verbose=0,
                  pre_dispatch='2*n_jobs', error_score='raise'):
         assert(n_jobs == 1)
@@ -112,6 +119,7 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
             pre_dispatch=pre_dispatch, error_score=error_score)
         self.param_grid = param_grid
         self.n_iter = n_iter
+        self.n_initial_points = n_initial_points
         _search._check_param_grid(param_grid)
 
 
@@ -169,7 +177,11 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
 #
 
         # n_fits on each (train, test)
-        def cross_validation(parameters):
+        def cross_validation(raw_parameters):
+            parameters = dict(zip(
+                self.param_grid.keys(), raw_parameters
+            ))  # TODO more robust way of doing this
+
             return Parallel(
                 n_jobs=self.n_jobs, verbose=self.verbose,
                 pre_dispatch=pre_dispatch
@@ -179,6 +191,7 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
                                       error_score=self.error_score)
                for train, test in cv.split(X, y, labels))
 
+        x = cartesian_product(*self.param_grid.values())
 
         # FIXME implement as non-recursive
         # FIXME cannot fit with empty data
@@ -187,9 +200,6 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
                 kernel = kernels.Matern() + kernels.WhiteKernel()
                 gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
                 gp.fit(x_obs, y_obs)
-
-                xs = list(repeat(np.atleast_2d(np.linspace(0, 10, 128)).T, 2))
-                x = cartesian_product(*xs)
 
                 a = a_EI(gp, x_obs=x_obs, y_obs=y_obs)
 
@@ -213,7 +223,18 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
 
 
         # FIXME (most informative) decision like Numerical Probabilistics stuff for integrations
-        out = bo_([], [], n_iter=self.n_iter)
+        # sobol initilization?
+
+        sampled_x_ind = np.random.choice(
+            x.shape[0],
+            size=self.n_initial_points,
+            replace=False,
+        )
+        x_obs = x[sampled_x_ind]
+        f_x_obs = list(map(co(cross_validation, np.atleast_2d), x_obs))
+        y_obs = list(map(co(np.mean, mean_validation_score), f_x_obs))
+
+        out = f_x_obs + bo_(x_obs, y_obs, n_iter=self.n_iter)
 
 
         n_fits = len(out)
@@ -269,8 +290,17 @@ def negate(f):
     return _f
 
 
-def cartesian_product(*xs):
-    return np.dstack(np.meshgrid(*xs)).reshape(-1, len(xs))
+def cartesian_product(*arrays):
+    broadcastable = np.ix_(*arrays)
+    broadcasted = np.broadcast_arrays(*broadcastable)
+    rows, cols = reduce(np.multiply, broadcasted[0].shape), len(broadcasted)
+    out = np.empty(rows * cols, dtype=broadcasted[0].dtype)
+    start, end = 0, rows
+    for a in broadcasted:
+        out[start:end] = a.reshape(-1)
+        start, end = end, end + rows
+
+    return out.reshape(cols, rows).T
 
 
 def pmap(f, *xss):
