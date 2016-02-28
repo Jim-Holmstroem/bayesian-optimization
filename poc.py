@@ -86,6 +86,12 @@ from joblib import (
     delayed,
 )
 
+def mean_mean_validation_scores(results):
+    return np.mean(list(map(
+        itemgetter(0),
+        results
+    )))
+
 
 def co(f, *gs):
     if gs:
@@ -112,13 +118,15 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
     def __init__(self, estimator, param_grid, n_iter, n_initial_points, scoring=None, fit_params=None,
                  n_jobs=1, iid=True, refit=True, cv=None, verbose=0,
                  pre_dispatch='2*n_jobs', error_score='raise'):
-        assert(n_jobs == 1)
+        #assert(n_jobs == 1)
         super(BayesianOptimizationSearchCV, self).__init__(
             estimator=estimator, scoring=scoring, fit_params=fit_params,
             n_jobs=n_jobs, iid=iid, refit=refit, cv=cv, verbose=verbose,
             pre_dispatch=pre_dispatch, error_score=error_score)
         self.param_grid = param_grid
+        assert(n_iter >= 0)
         self.n_iter = n_iter
+        assert(n_initial_points > 0)
         self.n_initial_points = n_initial_points
         _search._check_param_grid(param_grid)
 
@@ -194,7 +202,6 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
         x = cartesian_product(*self.param_grid.values())
 
         # FIXME implement as non-recursive
-        # FIXME cannot fit with empty data
         def bo_(x_obs, y_obs, n_iter):
             if n_iter > 0:
                 kernel = kernels.Matern() + kernels.WhiteKernel()
@@ -206,15 +213,13 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
                 argmin_a_x = x[np.argmax(a(x))]
 
                 # heavy evaluation
-                print("f({})".format(argmin_a_x))
-                f_argmin_a_x = cross_validation(np.atleast_2d(argmin_a_x))
+                f_argmin_a_x = cross_validation(argmin_a_x)
 
-                y_ob = np.mean(mean_validation_score(f_argmin_a_x))
-                print("y_obs", y_obs)
+                y_ob = np.atleast_2d(mean_mean_validation_scores(f_argmin_a_x)).T
 
                 return f_argmin_a_x + bo_(
                     x_obs=np.vstack((x_obs, argmin_a_x)),
-                    y_obs=np.hstack((y_obs, y_ob)),
+                    y_obs=np.vstack((y_obs, y_ob)),
                     n_iter=n_iter-1,
                 )
 
@@ -230,12 +235,14 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
             size=self.n_initial_points,
             replace=False,
         )
+        print(sampled_x_ind)
+
         x_obs = x[sampled_x_ind]
-        f_x_obs = list(map(co(cross_validation, np.atleast_2d), x_obs))
-        y_obs = list(map(co(np.mean, mean_validation_score), f_x_obs))
+        f_x_obs = list(map(cross_validation, x_obs))
 
-        out = f_x_obs + bo_(x_obs, y_obs, n_iter=self.n_iter)
+        y_obs = np.atleast_2d(list(map(mean_mean_validation_scores, f_x_obs))).T
 
+        out = sum(f_x_obs, []) + bo_(x_obs, y_obs, n_iter=self.n_iter)
 
         n_fits = len(out)
 
@@ -335,6 +342,7 @@ def a_PI(gp_model, x_obs, y_obs, theta=0.01):
 
     def a_PI_given(x):
         mu_x, sigma_x = gp_model.predict(x, return_std=True)
+        sigma_x = np.atleast_2d(sigma_x).T
         dx = (fx_min - mu_x) - theta
         Z = dx / sigma_x
 
@@ -359,6 +367,7 @@ def a_EI(gp_model, x_obs, y_obs, theta=0.01):
         """x : array-like, shape = [n_observations, n_features]
         """
         mu_x, sigma_x = gp_model.predict(x, return_std=True)
+        sigma_x = np.atleast_2d(sigma_x).T
         dx = (fx_min - mu_x) - theta
         Z = dx / sigma_x
 
