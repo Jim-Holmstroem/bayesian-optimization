@@ -75,7 +75,7 @@ param_grid = {
     "max_depth": list(range(2, 32)),
 }
 
-n_initial_points = 8
+n_initial_points = 2
 
 bayesian_optimization_search = BayesianOptimizationSearchCV(
     clf,
