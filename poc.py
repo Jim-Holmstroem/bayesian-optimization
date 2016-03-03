@@ -86,6 +86,7 @@ from joblib import (
     delayed,
 )
 
+
 def mean_mean_validation_scores(results):
     return np.mean(list(map(
         itemgetter(0),
@@ -206,19 +207,19 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
             if n_iter > 0:
                 kernel = kernels.Matern() + kernels.WhiteKernel()
                 gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=16)
-                gp.fit(x_obs, y_obs)
+                gp.fit(x_obs, 1-y_obs)
 
-                a = a_EI(gp, x_obs=x_obs, y_obs=y_obs)
+                a = a_EI(gp, x_obs=x_obs, y_obs=1-y_obs)
 
-                argmin_a_x = x[np.argmax(a(x))]
+                argmax_f_x_ = x[np.argmax(a(x))]
 
                 # heavy evaluation
-                f_argmin_a_x = cross_validation(argmin_a_x)
+                f_argmax_f_x_ = cross_validation(argmax_f_x_)
 
-                y_ob = np.atleast_2d(mean_mean_validation_scores(f_argmin_a_x)).T
+                y_ob = np.atleast_2d(mean_mean_validation_scores(f_argmax_f_x_)).T
 
-                return f_argmin_a_x + bo_(
-                    x_obs=np.vstack((x_obs, argmin_a_x)),
+                return f_argmax_f_x_ + bo_(
+                    x_obs=np.vstack((x_obs, argmax_f_x_)),
                     y_obs=np.vstack((y_obs, y_ob)),
                     n_iter=n_iter-1,
                 )
