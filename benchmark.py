@@ -10,11 +10,12 @@ from matplotlib import pyplot as plt
 
 from time import time
 from operator import itemgetter
-from scipy.stats import randint as sp_randint
+from scipy import stats
 
 from sklearn.grid_search import GridSearchCV, RandomizedSearchCV
 from sklearn.datasets import load_digits
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 
 from poc import *
 
@@ -44,18 +45,46 @@ digits = load_digits()
 X, y = digits.data, digits.target
 
 n_iter = 16
+
+clf = SVC(
+    kernel='poly',
+    shrinking=True,
+)
+
+# # SVC
+#param_dist = {
+#    "C": stats.uniform(0.01, 10),
+#    "degree": stats.randint(1, 16),
+#
+#}
+#param_grid = {
+#    "C": np.linspace(0.01, 10, 128),
+#    "degree": list(range(1,16+1)),
+#}
+
+
+ # RandomForestClassifier
 clf = RandomForestClassifier(
     bootstrap=True,
     criterion="gini",
 )
 
 param_dist = {
-    "max_features": sp_randint(1, 32),
-    "min_samples_split": sp_randint(1, 32),
-    "min_samples_leaf": sp_randint(1, 32),
-    "n_estimators": sp_randint(2, 64),
-    "max_depth": sp_randint(2, 32),
+    "max_features": stats.randint(1, 32),
+    "min_samples_split": stats.randint(1, 32),
+#    "min_samples_leaf": stats.randint(1, 32),
+    "n_estimators": stats.randint(2, 64),
+    "max_depth": stats.randint(2, 32),
 }
+
+param_grid = {
+    "max_features": list(range(1, 32)),
+    "min_samples_split": list(range(1, 32)),
+#    "min_samples_leaf": list(range(1, 32)),
+    "n_estimators": list(range(2, 64)),
+    "max_depth": list(range(2, 32)),
+}
+
 
 random_search = RandomizedSearchCV(
     clf,
@@ -66,14 +95,6 @@ random_search = RandomizedSearchCV(
 
 print("random_search.fit(X, y)")
 random_search.fit(X, y)
-
-param_grid = {
-    "max_features": list(range(1, 32)),
-    "min_samples_split": list(range(1, 32)),
-    "min_samples_leaf": list(range(1, 32)),
-    "n_estimators": list(range(2, 64)),
-    "max_depth": list(range(2, 32)),
-}
 
 n_initial_points = 2
 

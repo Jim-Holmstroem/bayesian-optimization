@@ -190,6 +190,7 @@ class BayesianOptimizationSearchCV(_search.BaseSearchCV):
             parameters = dict(zip(
                 self.param_grid.keys(), raw_parameters
             ))  # TODO more robust way of doing this
+            print(parameters)
 
             return Parallel(
                 n_jobs=self.n_jobs, verbose=self.verbose,
@@ -302,7 +303,8 @@ def cartesian_product(*arrays):
     broadcastable = np.ix_(*arrays)
     broadcasted = np.broadcast_arrays(*broadcastable)
     rows, cols = reduce(np.multiply, broadcasted[0].shape), len(broadcasted)
-    out = np.empty(rows * cols, dtype=broadcasted[0].dtype)
+    # FIXME needs to handle different datatypes (this is probably a much more involved problem to solve then what can be solved inside cartesian_product)
+    out = np.empty(rows * cols, dtype=np.int) # np.empty(rows * cols, dtype=broadcasted[0].dtype)
     start, end = 0, rows
     for a in broadcasted:
         out[start:end] = a.reshape(-1)
